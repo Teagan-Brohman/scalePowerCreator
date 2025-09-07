@@ -151,8 +151,8 @@ Duration",
         params = []
         
         if year:
-            conditions.append("start_year = ? OR end_year = ?")
-            params.extend([year, year])
+            conditions.append("strftime('%Y', datetime_combined) = ?")
+            params.append(str(year))
         
         if start_date:
             conditions.append("Date >= ?")
@@ -224,7 +224,16 @@ Duration",
         
         # Extract separate lists
         self.db_powers = [power for power, _ in power_data]
-        self.db_times = [duration for _, duration in power_data]
+        
+        # Convert durations to cumulative time (to match generator output)
+        cumulative_time = 0.0
+        cumulative_times = []
+        for _, duration in power_data:
+            cumulative_time += duration
+            # Round to whole minutes (same as generator)
+            rounded_time = round(cumulative_time)
+            cumulative_times.append(int(rounded_time))
+        self.db_times = cumulative_times
         
         logger.info(f"Recreated {len(self.db_powers)} power values and {len(self.db_times)} time values")
         logger.info(f"Database: {processed_rows} power periods, {shutdown_periods} shutdown periods")

@@ -85,8 +85,8 @@ Duration",
         params = []
         
         if year:
-            conditions.append("start_year = ? OR end_year = ?")
-            params.extend([year, year])
+            conditions.append("strftime('%Y', datetime_combined) = ?")
+            params.append(str(year))
         
         if start_date:
             conditions.append("Date >= ?")
@@ -124,10 +124,21 @@ Duration",
             query, params = self.build_query(start_date, end_date, year)
             
             # Get total count for progress
-            count_query = query.replace("SELECT Date,", "SELECT COUNT(*)")
-            count_query = count_query.split("ORDER BY")[0]  # Remove ORDER BY for count
+            count_query = """
+            SELECT COUNT(*)
+            FROM burnup_data 
+            WHERE 1=1
+            """
+            if params:
+                # Add the same conditions as the main query
+                if year:
+                    count_query += " AND strftime('%Y', datetime_combined) = ?"
+                if start_date:
+                    count_query += " AND Date >= ?"
+                if end_date:
+                    count_query += " AND Date <= ?"
             cursor.execute(count_query, params)
-            self.total_rows = cursor.fetchone()[0]
+            self.total_rows = int(cursor.fetchone()[0])
             
             if self.total_rows == 0:
                 logger.warning("No rows found matching the criteria")
@@ -176,7 +187,7 @@ Duration",
             return
         
         try:
-            power_mw = self.safe_float(power_per_min)/1000  # Convert kW to MW
+            power_mw = self.safe_float(power_per_min) / 1000  # Convert kW to MW
             
             # Calculate total duration (Delta Time + Power Duration)
             delta_min = self.safe_float(delta_time, 0.0)
@@ -248,12 +259,15 @@ Duration",
                 
                 f.write("\n")
                 
-                # Write Time Block
+                # Write Time Block (cumulative time)
                 f.write("# TIME BLOCK (minutes)\n")
+                cumulative_time = 0.0
                 for i, (_, duration) in enumerate(self.power_data):
-                    # Format without trailing zeros
-                    duration_str = f"{duration:.6f}".rstrip('0').rstrip('.')
-                    f.write(duration_str)
+                    cumulative_time += duration
+                    # Round to whole minutes
+                    rounded_time = round(cumulative_time)
+                    cumulative_str = str(int(rounded_time))
+                    f.write(cumulative_str)
                     if (i + 1) % 10 == 0:  # New line every 10 values for readability
                         f.write("\n")
                     else:
