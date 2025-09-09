@@ -1,0 +1,12 @@
+/.claude
+/CLAUDE.md
+/combined_yearly_data.db
+/BURNWB3
+/workflow_production_full_core.log
+/element_cache.json
+/scale_runs/*
+/__pycache__/*
+/.vscode/*
+
+
+
