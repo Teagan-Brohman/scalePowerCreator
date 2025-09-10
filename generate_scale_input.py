@@ -973,94 +973,11 @@ def generate_helper_scripts(output_dir: Path, assemblies: Dict[str, List[str]], 
     
     # Make script executable
     os.chmod(run_script, 0o755)
-    
-    # Generate README with Python-based instructions
-    readme_file = output_dir / "README.md"
-    with open(readme_file, 'w') as f:
-        f.write("# SCALE Parallel Execution (Python-based)\n\n")
-        f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        if mode == 'element':
-            total_elements = sum(len(elements) for elements in assemblies.values())
-            f.write(f"Total Elements: {total_elements} (from {len(assemblies)} assemblies)\n\n")
-        else:
-            f.write(f"Total Assemblies: {len(assemblies)}\n\n")
-        
-        f.write("## Files Generated\n\n")
-        if mode == 'element':
-            for assembly_name, elements in assemblies.items():
-                f.write(f"### {assembly_name}\n")
-                for element_key in elements:
-                    # Create a temporary ScaleInputGenerator instance to use the extract_element_number method
-                    temp_generator = ScaleInputGenerator()
-                    element_number = temp_generator.extract_element_number(element_key)
-                    f.write(f"- `element_{element_number:03d}.inp`: {element_key}\n")
-                f.write("\n")
-        else:
-            for assembly_name, elements in assemblies.items():
-                safe_name = assembly_name.replace(' ', '_').replace('/', '-')
-                f.write(f"- `assembly_{safe_name}.inp`: {len(elements)} elements from {assembly_name}\n")
-        
-        f.write("\n## Python Execution Scripts\n\n")
-        f.write("- `run_parallel.py`: Main parallel execution script with .msg file monitoring\n")
-        f.write("- `monitor_status.py`: Real-time job status monitoring\n")
-        f.write("- `scale_msg_parser.py`: SCALE .msg file parser utility\n")
-        f.write("- `scale_parallel_runner.py`: Parallel execution engine\n")
-        
-        f.write("\n## Execution Instructions\n\n")
-        f.write("1. **Start parallel execution:**\n")
-        f.write("   ```bash\n")
-        f.write("   python run_parallel.py --workers 8    # Run with 8 parallel jobs\n")
-        f.write("   python run_parallel.py --verbose      # Enable verbose logging\n")
-        f.write("   ```\n\n")
-        
-        f.write("2. **Monitor progress (in separate terminal):**\n")
-        f.write("   ```bash\n")
-        f.write("   python monitor_status.py              # Real-time dashboard\n")
-        f.write("   python monitor_status.py --once       # Single status check\n")
-        f.write("   python monitor_status.py --refresh 2  # Update every 2 seconds\n")
-        f.write("   ```\n\n")
-        
-        f.write("3. **Check results after completion:**\n")
-        f.write("   ```bash\n")
-        f.write("   python ../tools/collect_assembly_results.py --input-dir . --check-msg\n")
-        f.write("   ```\n\n")
-        
-        f.write("## Key Features\n\n")
-        f.write("- **Accurate completion detection** via .msg file parsing\n")
-        f.write("- **Cross-platform** Python instead of bash\n")
-        f.write("- **Real-time monitoring** with status dashboard\n")
-        f.write("- **Robust error handling** with return code checking\n")
-        f.write("- **Progress tracking** with runtime estimates\n")
-        
-        f.write("\n## Status Detection\n\n")
-        f.write("The system monitors .msg files for completion messages like:\n")
-        f.write("```\n")
-        f.write("Scale job C:\\path\\to\\assembly.inp is finished.\n")
-        f.write("Output is stored in C:\\path\\to\\assembly.out\n")
-        f.write("Process finished with 0 return code; ran in 123 secs\n")
-        f.write("```\n\n")
-        f.write("**Note**: Return code 0 indicates SUCCESS (job completed successfully).\n")
-        f.write("Non-zero return codes indicate failures or errors.\n\n")
-        
-        f.write("## Performance Benefits\n\n")
-        total_elements = sum(len(elements) for elements in assemblies.values())
-        f.write(f"- **Original**: 1 file with all {total_elements} elements (single-threaded)\n")
-        if mode == 'element':
-            f.write(f"- **Parallel**: {total_elements} elements running simultaneously (maximum parallelization)\n")
-            f.write(f"- **Expected speedup**: ~{min(total_elements, 64)}x on {min(total_elements, 64)}+ core systems\n")
-            f.write(f"- **Better fault tolerance**: Individual element failures don't affect others\n")
-            f.write(f"- **Assembly tracking**: Each element file tracks its source assembly\n")
-        else:
-            f.write(f"- **Parallel**: {len(assemblies)} assemblies running simultaneously\n")
-            f.write(f"- **Expected speedup**: ~{len(assemblies)}x on {len(assemblies)}+ core systems\n")
-            f.write("- **Better fault tolerance**: Individual assembly failures don't affect others\n")
-    
     logger.info(f"Generated Python helper scripts in {output_dir}:")
     logger.info(f"  - run_parallel.py: Main execution script")
     logger.info(f"  - monitor_status.py: Status monitoring dashboard")  
     logger.info(f"  - scale_msg_parser.py: .msg file parser")
     logger.info(f"  - scale_parallel_runner.py: Parallel execution engine")
-    logger.info(f"  - README.md: Instructions")
     if mode == 'element':
         logger.info(f"  - element_list.txt: Element-to-assembly mapping")
     else:

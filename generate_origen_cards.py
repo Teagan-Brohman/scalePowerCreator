@@ -25,7 +25,6 @@ from pathlib import Path
 from datetime import datetime
 import logging
 
-# Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -248,7 +247,7 @@ Duration",
         }
     
     def _get_date_range_string(self):
-        """Get human-readable date range string"""
+        """Get date range string"""
         if self.first_date and self.last_date:
             if self.first_date == self.last_date:
                 return self.first_date
