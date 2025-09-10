@@ -7,6 +7,8 @@
 /scale_runs/*
 /__pycache__/*
 /.vscode/*
+/workflow_production_full_core.log.*
+origen_cards_*
 
 
 

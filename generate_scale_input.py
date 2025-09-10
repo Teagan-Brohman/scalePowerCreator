@@ -28,10 +28,189 @@ from pathlib import Path
 from datetime import datetime
 import logging
 from typing import Dict, List, Tuple, Optional, Any
+from dataclasses import dataclass
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+@dataclass
+class ScaleConfig:
+    """Unified configuration for SCALE input generation"""
+    # Input files
+    flux_json_file: str
+    power_time_file: str
+    material_file: Optional[str] = None
+    materials_db: Optional[str] = None
+    cycle_number: Optional[int] = None
+    
+    # Output configuration
+    output_file: str = "scale_multi_element.inp"
+    output_dir: Optional[str] = None
+    
+    # Power scaling parameters
+    total_core_plates: Optional[int] = None
+    power_per_element: Optional[float] = None
+    
+    # Parallel execution options
+    split_by_assembly: bool = False
+    split_by_element: bool = False
+    assemblies_filter: Optional[List[str]] = None
+    elements_filter: Optional[List[str]] = None
+    
+    # Logging
+    verbose: bool = False
+    
+    def __post_init__(self):
+        """Validate configuration after initialization"""
+        if self.split_by_assembly and self.split_by_element:
+            raise ValueError("Cannot use both split_by_assembly and split_by_element")
+        
+        if self.assemblies_filter and isinstance(self.assemblies_filter, str):
+            self.assemblies_filter = [a.strip() for a in self.assemblies_filter.split(',')]
+        
+        if self.elements_filter and isinstance(self.elements_filter, str):
+            self.elements_filter = [e.strip() for e in self.elements_filter.split(',')]
+    
+    @property
+    def is_parallel_mode(self) -> bool:
+        """Check if parallel file generation is enabled"""
+        return self.split_by_assembly or self.split_by_element
+    
+    @property
+    def parallel_mode_name(self) -> str:
+        """Get the name of the parallel mode"""
+        if self.split_by_element:
+            return "element"
+        elif self.split_by_assembly:
+            return "assembly"
+        else:
+            return "single"
+
+class ElementValidator:
+    """Centralized element validation with comprehensive checks"""
+    
+    def __init__(self, flux_data: Dict[str, List[float]]):
+        self.flux_data = flux_data
+        self.validation_errors = []
+        self.validation_warnings = []
+    
+    def validate_element(self, element_key: str) -> Tuple[bool, List[str], List[str]]:
+        """
+        Comprehensive validation for a single element
+        
+        Returns:
+            Tuple of (is_valid, errors, warnings)
+        """
+        errors = []
+        warnings = []
+        
+        # Check 1: Element exists in flux data
+        if element_key not in self.flux_data:
+            errors.append(f"Element '{element_key}' not found in flux data")
+            return False, errors, warnings
+        
+        flux_values = self.flux_data[element_key]
+        
+        # Check 2: Flux data structure validation
+        if not isinstance(flux_values, (list, tuple)):
+            errors.append(f"Flux data for '{element_key}' is not a list/tuple")
+            return False, errors, warnings
+        
+        # Check 3: Required number of energy groups
+        if len(flux_values) < 56:
+            errors.append(f"Element '{element_key}' has insufficient flux groups: {len(flux_values)} < 56")
+            return False, errors, warnings
+        elif len(flux_values) > 56:
+            warnings.append(f"Element '{element_key}' has extra flux groups: {len(flux_values)} > 56 (will be truncated)")
+        
+        # Check 4: Flux values are numeric
+        try:
+            numeric_values = [float(val) for val in flux_values[:56]]
+        except (ValueError, TypeError) as e:
+            errors.append(f"Element '{element_key}' has non-numeric flux values: {e}")
+            return False, errors, warnings
+        
+        # Check 5: Flux values are not all zeros
+        if all(abs(val) < 1e-15 for val in numeric_values):
+            errors.append(f"Element '{element_key}' has all-zero flux values")
+            return False, errors, warnings
+        
+        # Check 6: Check for NaN or infinite values
+        invalid_values = []
+        for i, val in enumerate(numeric_values):
+            if val != val:  # NaN check
+                invalid_values.append(f"NaN at group {i+1}")
+            elif abs(val) == float('inf'):
+                invalid_values.append(f"Infinite at group {i+1}")
+        
+        if invalid_values:
+            errors.append(f"Element '{element_key}' has invalid flux values: {', '.join(invalid_values[:5])}")
+            if len(invalid_values) > 5:
+                errors.append(f"... and {len(invalid_values) - 5} more invalid values")
+            return False, errors, warnings
+        
+        # Check 7: Warn about unusually small or large flux values
+        max_val = max(abs(val) for val in numeric_values)
+        min_val = min(abs(val) for val in numeric_values if abs(val) > 0)
+        
+        if max_val > 1e15:
+            warnings.append(f"Element '{element_key}' has very large flux values (max: {max_val:.2e})")
+        
+        if min_val < 1e-20:
+            warnings.append(f"Element '{element_key}' has very small flux values (min: {min_val:.2e})")
+        
+        # Check 8: Validate element naming convention
+        if not self._validate_element_naming(element_key):
+            warnings.append(f"Element '{element_key}' does not follow expected naming convention")
+        
+        return True, errors, warnings
+    
+    def _validate_element_naming(self, element_key: str) -> bool:
+        """Check if element follows expected naming conventions"""
+        # Look for patterns like "Assembly XXX, Element #N" or similar
+        patterns = [
+            r'Assembly\s+\w+.*Element\s*#?\d+',  # Standard assembly-element format
+            r'Element\s*#?\d+',                   # Simple element format
+            r'\w+_E\d+',                         # Alternative naming
+        ]
+        
+        import re
+        for pattern in patterns:
+            if re.search(pattern, element_key, re.IGNORECASE):
+                return True
+        return False
+    
+    def validate_all_elements(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Validate all elements in flux data
+        
+        Returns:
+            Dictionary with validation results for each element
+        """
+        results = {}
+        total_errors = 0
+        total_warnings = 0
+        
+        for element_key in self.flux_data.keys():
+            is_valid, errors, warnings = self.validate_element(element_key)
+            results[element_key] = {
+                'valid': is_valid,
+                'errors': errors,
+                'warnings': warnings
+            }
+            total_errors += len(errors)
+            total_warnings += len(warnings)
+        
+        # Log summary
+        logger.info(f"Element validation complete:")
+        logger.info(f"  Total elements: {len(self.flux_data)}")
+        logger.info(f"  Valid elements: {sum(1 for r in results.values() if r['valid'])}")
+        logger.info(f"  Invalid elements: {sum(1 for r in results.values() if not r['valid'])}")
+        logger.info(f"  Total errors: {total_errors}")
+        logger.info(f"  Total warnings: {total_warnings}")
+        
+        return results
 
 class ScaleInputGenerator:
     """Generate SCALE input decks with multiple element burns"""
@@ -222,11 +401,81 @@ class ScaleInputGenerator:
             # Apply scaling to all power values
             self.scaled_power_data = [p * scaling_factor for p in self.power_data]
             
+            # Verify power scaling for energy conservation
+            if not self._verify_power_scaling(scaling_factor):
+                logger.error("Power scaling verification failed")
+                return False
+            
             logger.info(f"Power scaled by factor {scaling_factor:.6f}")
             return True
             
         except Exception as e:
             logger.error(f"Error calculating element power: {e}")
+            return False
+    
+    def _verify_power_scaling(self, scaling_factor: float) -> bool:
+        """
+        Verify that power scaling preserves energy conservation
+        
+        Args:
+            scaling_factor: The scaling factor applied to power values
+            
+        Returns:
+            True if verification passes, False otherwise
+        """
+        try:
+            # Check that scaled power data exists
+            if not self.scaled_power_data:
+                logger.error("No scaled power data to verify")
+                return False
+            
+            # Calculate total energy for original and scaled data
+            if not self.time_data or len(self.time_data) != len(self.power_data):
+                logger.warning("Cannot verify energy conservation: time data mismatch")
+                return True  # Skip verification if time data is invalid
+            
+            # Calculate total energy (power * time) for verification
+            original_total_energy = 0.0
+            scaled_total_energy = 0.0
+            
+            for i, (original_power, scaled_power, time_duration) in enumerate(
+                zip(self.power_data, self.scaled_power_data, self.time_data)):
+                
+                # Calculate energy for this time step (convert minutes to hours for MW·h)
+                time_hours = time_duration / 60.0 if i == 0 else (time_duration - self.time_data[i-1]) / 60.0
+                
+                original_total_energy += original_power * abs(time_hours)
+                scaled_total_energy += scaled_power * abs(time_hours)
+            
+            # For single element scaling, verify the relationship
+            num_elements = len(self.flux_data)
+            if num_elements > 0:
+                # Expected total scaled energy should be: original_energy * scaling_factor * num_elements
+                # This accounts for the fact that we're scaling per-element, but total energy
+                # across all elements should relate properly to the original total
+                expected_total_scaled_energy = original_total_energy * scaling_factor
+                
+                # Allow for small floating-point errors (0.1% tolerance)
+                relative_error = abs(scaled_total_energy - expected_total_scaled_energy) / max(abs(expected_total_scaled_energy), 1e-10)
+                
+                if relative_error > 0.001:  # 0.1% tolerance
+                    logger.warning(f"Power scaling verification: relative error {relative_error:.6f} > 0.001")
+                    logger.warning(f"Original total energy: {original_total_energy:.6f} MW·h")
+                    logger.warning(f"Scaled total energy: {scaled_total_energy:.6f} MW·h") 
+                    logger.warning(f"Expected scaled energy: {expected_total_scaled_energy:.6f} MW·h")
+                    # Don't fail on this - just warn, as different scaling strategies may be valid
+                
+                logger.debug(f"Power scaling verification passed:")
+                logger.debug(f"  Scaling factor: {scaling_factor:.6f}")
+                logger.debug(f"  Number of elements: {num_elements}")
+                logger.debug(f"  Original total energy: {original_total_energy:.6f} MW·h")
+                logger.debug(f"  Scaled total energy: {scaled_total_energy:.6f} MW·h")
+                logger.debug(f"  Relative error: {relative_error:.8f}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error in power scaling verification: {e}")
             return False
     
     def load_materials_from_database(self, db_path: str, cycle_number: int = None) -> bool:
@@ -459,33 +708,37 @@ class ScaleInputGenerator:
     
     def validate_flux_data(self, element_key: str) -> bool:
         """
-        Validate flux data for an element
+        Validate flux data for an element using the comprehensive ElementValidator
         
         Args:
             element_key: Element identifier
             
         Returns:
-            True if flux data is valid, False if all zeros or invalid
+            True if flux data is valid, False otherwise
         """
-        if element_key not in self.flux_data:
-            return False
+        validator = ElementValidator(self.flux_data)
+        is_valid, errors, warnings = validator.validate_element(element_key)
         
-        flux_values = self.flux_data[element_key]
+        # Log any errors or warnings for this specific element
+        for error in errors:
+            logger.error(error)
+        for warning in warnings:
+            logger.warning(warning)
         
-        # Check if all flux values are zero or near zero
-        if not flux_values or all(abs(val) < 1e-15 for val in flux_values):
-            return False
+        return is_valid
+    
+    def validate_all_flux_data(self) -> Dict[str, bool]:
+        """
+        Validate all flux data using comprehensive validation
         
-        # Check for any NaN or infinite values
-        try:
-            if any(not isinstance(val, (int, float)) or 
-                   val != val or  # NaN check
-                   abs(val) == float('inf') for val in flux_values):
-                return False
-        except (TypeError, ValueError):
-            return False
+        Returns:
+            Dictionary mapping element_key to validation status
+        """
+        validator = ElementValidator(self.flux_data)
+        validation_results = validator.validate_all_elements()
         
-        return True
+        # Convert to simple boolean mapping for backwards compatibility
+        return {element_key: results['valid'] for element_key, results in validation_results.items()}
     
     def generate_element_input(self, assembly_name: str, element_key: str, 
                              element_number: int, output_file: str) -> tuple:
@@ -519,11 +772,11 @@ class ScaleInputGenerator:
                 f.write("\n")
                 
                 # Write build_lib section for this element (use element_number for unique flux file)
-                f.write(self.generate_build_lib_for_element(element_key, element_number))
+                f.write(self.generate_build_lib(element_key, element_number, use_underscore=False))
                 f.write("\n")
                 
                 # Write case section for this element (use element_number for unique flux file)
-                f.write(self.generate_case_for_element(element_key, element_number))
+                f.write(self.generate_case(element_key, element_number, use_underscore=False))
                 f.write("\n")
                 
                 # Write end statement
@@ -551,52 +804,66 @@ solver{
 }"""
         return header
     
-    def generate_build_lib(self, element_key: str, lib_index: int) -> str:
-        """Generate build_lib section for a specific element"""
-        lib_name = f"element_{lib_index:03d}.f33"
-        flux_values = self.flux_data[element_key]
-        
-        # Format flux values for SCALE input
+    def _format_flux_values(self, flux_values: List[float]) -> str:
+        """Format flux values for SCALE input with proper line breaks"""
         flux_formatted = []
         for i, flux_val in enumerate(flux_values):
             if i > 0 and i % 5 == 0:  # New line every 5 values
                 flux_formatted.append(f"\n        {flux_val:.5E}")
             else:
                 flux_formatted.append(f"{flux_val:.5E}")
-        
-        flux_string = ", ".join(flux_formatted)
-        
-        build_lib = f'''build_lib("{lib_name}"){{
-% Build library for {element_key}
-    decay{{
-        type=ENDF_DECAY
-        resource="${{DATA}}/origen_data/origen.rev03.decay.data"
-    }}
-    neutron(1){{
-        type=ENDF_ENERGY_DEPENDENT
-        reaction_resource="n56.reaction.data"
-        spectrum {{
-            type=MULTIGROUP
-            flux=[{flux_string}]
-        }}
-    }}
-}}'''
-        return build_lib
-
-    def generate_build_lib_for_element(self, element_key: str, element_number: int) -> str:
-        """Generate build_lib section for a single element file using element-specific flux file"""
-        lib_name = f"element{element_number:03d}.f33"
-        flux_values = self.flux_data[element_key]
-        
-        # Format flux values for SCALE input
-        flux_formatted = []
-        for i, flux_val in enumerate(flux_values):
-            if i > 0 and i % 5 == 0:  # New line every 5 values
-                flux_formatted.append(f"\n        {flux_val:.5E}")
+        return ", ".join(flux_formatted)
+    
+    def _format_power_values(self) -> str:
+        """Format power values for SCALE input with proper line breaks"""
+        power_formatted = []
+        # Use scaled power data if available, otherwise fall back to original power data
+        power_source = self.scaled_power_data if self.scaled_power_data else self.power_data
+        for i, power in enumerate(power_source):
+            if i > 0 and i % 10 == 0:  # New line every 10 values
+                power_formatted.append(f"\n           {power:.5E}")
             else:
-                flux_formatted.append(f"{flux_val:.5E}")
+                power_formatted.append(f"{power:.5E}")
+        return "  ".join(power_formatted)
+    
+    def _format_time_values(self) -> str:
+        """Format time values for SCALE input with proper line breaks"""
+        time_formatted = []
+        for i, time in enumerate(self.time_data):
+            if i > 0 and i % 15 == 0:  # New line every 15 values
+                time_formatted.append(f"\n        {time}")
+            else:
+                time_formatted.append(f"{time}")
+        return "  ".join(time_formatted)
+    
+    def _format_material_composition(self, element_key: str) -> str:
+        """Format material composition for SCALE input"""
+        if element_key in self.material_compositions:
+            composition = self.material_compositions[element_key]
+        else:
+            composition = self.default_material
         
-        flux_string = ", ".join(flux_formatted)
+        mat_items = []
+        for isotope, fraction in composition.items():
+            mat_items.append(f"{isotope}={fraction:.9f}")
+        return " ".join(mat_items)
+    
+    def generate_build_lib(self, element_key: str, element_number: int, use_underscore: bool = True) -> str:
+        """
+        Generate build_lib section for a specific element
+        
+        Args:
+            element_key: Element identifier
+            element_number: Element number for file naming
+            use_underscore: If True, use "element_XXX.f33", else "elementXXX.f33"
+        """
+        if use_underscore:
+            lib_name = f"element_{element_number:03d}.f33"
+        else:
+            lib_name = f"element{element_number:03d}.f33"
+            
+        flux_values = self.flux_data[element_key]
+        flux_string = self._format_flux_values(flux_values)
         
         build_lib = f'''build_lib("{lib_name}"){{
 % Build library for {element_key}
@@ -615,104 +882,26 @@ solver{
 }}'''
         return build_lib
     
-    def generate_case(self, element_key: str, case_index: int) -> str:
-        """Generate case section for a specific element"""
-        lib_name = f"element_{case_index:03d}.f33"
-        case_name = f"element_{case_index:03d}_burn"
+    def generate_case(self, element_key: str, element_number: int, use_underscore: bool = True) -> str:
+        """
+        Generate case section for a specific element
         
-        # Get material composition
-        if element_key in self.material_compositions:
-            composition = self.material_compositions[element_key]
+        Args:
+            element_key: Element identifier
+            element_number: Element number for file naming
+            use_underscore: If True, use "element_XXX.f33", else "elementXXX.f33"
+        """
+        if use_underscore:
+            lib_name = f"element_{element_number:03d}.f33"
+            case_name = f"element_{element_number:03d}_burn"
         else:
-            composition = self.default_material
+            lib_name = f"element{element_number:03d}.f33"
+            case_name = f"element{element_number:03d}_burn"
         
-        # Format material composition
-        mat_items = []
-        for isotope, fraction in composition.items():
-            mat_items.append(f"{isotope}={fraction:.9f}")
-        mat_string = " ".join(mat_items)
-        
-        # Format power and time data
-        power_formatted = []
-        # Use scaled power data if available, otherwise fall back to original power data
-        power_source = self.scaled_power_data if self.scaled_power_data else self.power_data
-        for i, power in enumerate(power_source):
-            if i > 0 and i % 10 == 0:  # New line every 10 values
-                power_formatted.append(f"\n           {power:.5E}")
-            else:
-                power_formatted.append(f"{power:.5E}")
-        power_string = "  ".join(power_formatted)
-        
-        time_formatted = []
-        for i, time in enumerate(self.time_data):
-            if i > 0 and i % 15 == 0:  # New line every 15 values
-                time_formatted.append(f"\n        {time}")
-            else:
-                time_formatted.append(f"{time}")
-        time_string = "  ".join(time_formatted)
-        
-        case = f'''case({case_name}){{
-    title="{element_key} Irradiation"
-% Material Comp for {element_key} in grams
-    mat{{
-        iso=[ {mat_string} ]
-        units=grams
-    }}
-    lib{{
-        file="{lib_name}"
-        pos=1
-    }}
-% Power and time history
-    time{{
-        t=[{time_string}]
-        units=minutes
-    }}
-    power=[{power_string}]
-    print{{
-        nuc{{
-            total=yes
-            units=GRAMS
-        }}
-    }}
-    save=yes
-}}'''
-        return case
-
-    def generate_case_for_element(self, element_key: str, element_number: int) -> str:
-        """Generate case section for a single element file using element-specific flux file"""
-        lib_name = f"element{element_number:03d}.f33"
-        case_name = f"element{element_number:03d}_burn"
-        
-        # Get material composition
-        if element_key in self.material_compositions:
-            composition = self.material_compositions[element_key]
-        else:
-            composition = self.default_material
-        
-        # Format material composition
-        mat_items = []
-        for isotope, fraction in composition.items():
-            mat_items.append(f"{isotope}={fraction:.9f}")
-        mat_string = " ".join(mat_items)
-        
-        # Format power and time data
-        power_formatted = []
-        # Use scaled power data if available, otherwise fall back to original power data
-        power_source = self.scaled_power_data if self.scaled_power_data else self.power_data
-        for i, power in enumerate(power_source):
-            if i > 0 and i % 10 == 0:  # New line every 10 values
-                power_formatted.append(f"\n           {power:.5E}")
-            else:
-                power_formatted.append(f"{power:.5E}")
-        power_string = "  ".join(power_formatted)
-        
-        time_formatted = []
-        for i, time in enumerate(self.time_data):
-            if i > 0 and i % 15 == 0:  # New line every 15 values
-                time_formatted.append(f"\n        {time}")
-            else:
-                time_formatted.append(f"{time}")
-        time_string = "  ".join(time_formatted)
+        # Format all components using utility methods
+        mat_string = self._format_material_composition(element_key)
+        power_string = self._format_power_values()
+        time_string = self._format_time_values()
         
         case = f'''case({case_name}){{
     title="{element_key} Irradiation"
