@@ -4,59 +4,68 @@ from pathlib import Path
 
 def query_burnup_db(db_path="combined_yearly_data.db"):
     """
-    Simple utility to query the burnup database
-    
+    Simple utility to query the burnup database and display statistics.
+
     Args:
         db_path (str): Path to SQLite database file
+
+    Returns:
+        dict: Database statistics including columns, total_rows, sheet_count,
+              year_range, and sheets. Returns None if database not found or error occurs.
     """
     if not Path(db_path).exists():
         print(f"Database file '{db_path}' not found!")
         return None
-    
-    conn = sqlite3.connect(db_path)
-    
-    try:
-        print(f"Connected to database: {db_path}")
-        print("\nDatabase schema:")
-        
-        # Get table info
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(burnup_data)")
-        columns = cursor.fetchall()
-        
-        print("Columns in burnup_data table:")
-        for i, (cid, name, dtype, notnull, default, pk) in enumerate(columns, 1):
-            print(f"  {i:2d}. {name} ({dtype})")
-        
-        # Get basic statistics
-        cursor.execute("SELECT COUNT(*) FROM burnup_data")
-        total_rows = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT COUNT(DISTINCT sheet_name) FROM burnup_data")
-        sheet_count = cursor.fetchone()[0]
-        
-        cursor.execute("SELECT MIN(start_year), MAX(end_year) FROM burnup_data")
-        year_range = cursor.fetchone()
-        
-        print(f"\nDatabase statistics:")
-        print(f"  Total rows: {total_rows:,}")
-        print(f"  Number of sheets: {sheet_count}")
-        print(f"  Year range: {year_range[0]}-{year_range[1]}")
-        
-        # Show available sheets
-        cursor.execute("SELECT sheet_name, COUNT(*) as row_count FROM burnup_data GROUP BY sheet_name ORDER BY start_year")
-        sheets = cursor.fetchall()
-        
-        print(f"\nSheets in database:")
-        for sheet, count in sheets:
-            print(f"  {sheet}: {count:,} rows")
-        
-        return conn
-        
-    except Exception as e:
-        print(f"Error querying database: {e}")
-        conn.close()
-        return None
+
+    stats = {}
+
+    with sqlite3.connect(db_path) as conn:
+        try:
+            print(f"Connected to database: {db_path}")
+            print("\nDatabase schema:")
+
+            # Get table info
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(burnup_data)")
+            columns = cursor.fetchall()
+            stats['columns'] = columns
+
+            print("Columns in burnup_data table:")
+            for i, (cid, name, dtype, notnull, default, pk) in enumerate(columns, 1):
+                print(f"  {i:2d}. {name} ({dtype})")
+
+            # Get basic statistics
+            cursor.execute("SELECT COUNT(*) FROM burnup_data")
+            total_rows = cursor.fetchone()[0]
+            stats['total_rows'] = total_rows
+
+            cursor.execute("SELECT COUNT(DISTINCT sheet_name) FROM burnup_data")
+            sheet_count = cursor.fetchone()[0]
+            stats['sheet_count'] = sheet_count
+
+            cursor.execute("SELECT MIN(start_year), MAX(end_year) FROM burnup_data")
+            year_range = cursor.fetchone()
+            stats['year_range'] = year_range
+
+            print(f"\nDatabase statistics:")
+            print(f"  Total rows: {total_rows:,}")
+            print(f"  Number of sheets: {sheet_count}")
+            print(f"  Year range: {year_range[0]}-{year_range[1]}")
+
+            # Show available sheets
+            cursor.execute("SELECT sheet_name, COUNT(*) as row_count FROM burnup_data GROUP BY sheet_name ORDER BY start_year")
+            sheets = cursor.fetchall()
+            stats['sheets'] = sheets
+
+            print(f"\nSheets in database:")
+            for sheet, count in sheets:
+                print(f"  {sheet}: {count:,} rows")
+
+            return stats
+
+        except Exception as e:
+            print(f"Error querying database: {e}")
+            return None
 
 def run_custom_query(query, db_path="combined_yearly_data.db"):
     """
@@ -112,10 +121,9 @@ def example_queries(db_path="combined_yearly_data.db"):
 
 if __name__ == "__main__":
     # Query the database
-    conn = query_burnup_db()
-    
-    if conn:
-        conn.close()
+    stats = query_burnup_db()
+
+    if stats:
         print("\n" + "="*50)
         example_queries()
     else:

@@ -141,16 +141,48 @@ class ScaleMsgParser:
         if parsed_data.get('job_finished'):
             return 'completed'
         
-        # Check for error indicators
-        error_indicators = [
-            'error', 'failed', 'abort', 'exception', 'terminated abnormally',
-            'fatal', 'crash', 'segmentation fault'
+        # Check for error indicators using word boundary matching to avoid false positives
+        # Use regex patterns to match whole words only, excluding benign contexts
+        error_patterns = [
+            r'\berror\b(?!\s+(?:tolerance|bound|estimate|bar|margin|limit|threshold|norm))',  # 'error' but not 'error tolerance', etc.
+            r'\bfailed\b',
+            r'\babort(?:ed)?\b',
+            r'\bexception\b',
+            r'\bterminated abnormally\b',
+            r'\bfatal\b',
+            r'\bcrash(?:ed)?\b',
+            r'\bsegmentation fault\b'
         ]
-        
+
+        # Additional exclusion patterns - these are benign uses of 'error'
+        benign_patterns = [
+            r'(?:maximum|max|relative|absolute|truncation|convergence|numerical|roundoff|round-off)\s+error',
+            r'error\s+(?:tolerance|bound|estimate|bar|margin|limit|threshold|norm)',
+            r'no\s+error',
+            r'zero\s+error',
+            r'error\s*[=<>:]',  # error = 0.001, error < 1e-5, etc.
+        ]
+
         content_lower = content.lower()
-        for indicator in error_indicators:
-            if indicator in content_lower:
-                return 'failed'
+
+        for pattern in error_patterns:
+            match = re.search(pattern, content_lower)
+            if match:
+                matched_text = match.group(0)
+                # Check if this match is part of a benign context
+                is_benign = False
+                for benign in benign_patterns:
+                    # Search in a window around the match to check for benign context
+                    start = max(0, match.start() - 30)
+                    end = min(len(content_lower), match.end() + 30)
+                    context = content_lower[start:end]
+                    if re.search(benign, context):
+                        is_benign = True
+                        break
+
+                if not is_benign:
+                    logger.debug(f"Found error indicator '{matched_text}' in msg file")
+                    return 'failed'
         
         # Check if job has started
         if parsed_data.get('job_started'):

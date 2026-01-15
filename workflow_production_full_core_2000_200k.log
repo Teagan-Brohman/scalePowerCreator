@@ -1,0 +1,7 @@
+2025-09-10 13:33:31,563 - __main__ - INFO - Starting complete workflow: production_full_core_2000_200k
+2025-09-10 13:33:31,564 - __main__ - INFO - Starting step: Setting up workflow directories
+2025-09-10 13:33:31,565 - __main__ - INFO - Completed step: Setting up workflow directories (0.0s)
+2025-09-10 13:33:31,565 - __main__ - INFO - Starting step: Generating ORIGEN power/time cards
+2025-09-10 13:33:31,566 - __main__ - INFO - Running ORIGEN generation: python3 C:\Users\tbroh\MCNP_INPUTS\python\scalePowerCreator\generate_origen_cards.py --db combined_yearly_data.db --year 2000 --verbose
+2025-09-10 13:33:31,924 - __main__ - ERROR - Failed step: Generating ORIGEN power/time cards - [WinError 183] Cannot create a file when that file already exists: 'origen_cards_2000.txt' -> 'scale_runs\\production_full_core_2000_200k\\origen_cards_2000.txt'
+2025-09-10 13:33:31,925 - __main__ - ERROR - Workflow failed at step: origen-generation

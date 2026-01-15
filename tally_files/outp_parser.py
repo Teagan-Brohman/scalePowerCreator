@@ -99,10 +99,20 @@ def make_friendly_tally(tally: str) -> tuple:
                 data_line = [float(item) for item in split_line]
                 data_lines.append(data_line)
             if first_item == "total":
-                total_line = split_line
+                # Total line marks end of data section; value not needed for processing
+                break
         except IndexError:
             pass
+
+    # Validate data before numpy operations
+    # Need at least 2 data lines (first is skipped as header/reference)
+    if len(data_lines) < 2:
+        return (tally_name, [])
+
     data_list = [data_line for data_line in data_lines[1:]]
+    if not data_list:
+        return (tally_name, [])
+
     data_np = np.array(data_list)
     data_np = np.flip(data_np, axis=0).T
     data = [list(i) for i in data_np]

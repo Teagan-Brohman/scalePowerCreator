@@ -1,0 +1,29 @@
+2025-09-10 13:33:54,193 - __main__ - INFO - Starting complete workflow: production_full_core_2001_200k
+2025-09-10 13:33:54,194 - __main__ - INFO - Starting step: Setting up workflow directories
+2025-09-10 13:33:54,196 - __main__ - INFO - Completed step: Setting up workflow directories (0.0s)
+2025-09-10 13:33:54,196 - __main__ - INFO - Starting step: Generating ORIGEN power/time cards
+2025-09-10 13:33:54,197 - __main__ - INFO - Running ORIGEN generation: python3 C:\Users\tbroh\MCNP_INPUTS\python\scalePowerCreator\generate_origen_cards.py --db combined_yearly_data.db --year 2001 --verbose
+2025-09-10 13:33:54,470 - __main__ - INFO - Completed step: Generating ORIGEN power/time cards (0.3s)
+2025-09-10 13:33:54,470 - __main__ - INFO - ORIGEN generation completed: scale_runs\production_full_core_2001_200k\origen_cards_2001.txt
+2025-09-10 13:33:54,471 - __main__ - INFO - Starting step: Verifying ORIGEN cards against database
+2025-09-10 13:33:54,471 - __main__ - INFO - Running ORIGEN verification: python3 C:\Users\tbroh\MCNP_INPUTS\python\scalePowerCreator\verify_origen_cards.py --file scale_runs\production_full_core_2001_200k\origen_cards_2001.txt --db combined_yearly_data.db --tolerance-power 1e-08 --tolerance-time 0.001 --year 2001 --verbose
+2025-09-10 13:33:54,715 - __main__ - INFO - ORIGEN verification passed successfully
+2025-09-10 13:33:54,716 - __main__ - INFO - Completed step: Verifying ORIGEN cards against database (0.2s)
+2025-09-10 13:33:54,716 - __main__ - INFO - Starting step: Generating SCALE input files
+2025-09-10 13:33:54,716 - __main__ - INFO - Running command: python3 generate_scale_input.py --flux-json C:\Users\tbroh\MCNP_INPUTS\python\scalePowerCreator\tally_files\tallies_200k.json --power-time scale_runs\production_full_core_2001_200k\origen_cards_2001.txt --split-by-element --output-dir scale_runs\production_full_core_2001_200k\inputs
+2025-09-10 13:33:55,367 - __main__ - INFO - Completed step: Generating SCALE input files (0.7s)
+2025-09-10 13:33:55,368 - __main__ - INFO - Generated 243 SCALE input files
+2025-09-10 13:33:55,368 - __main__ - INFO - Starting step: Running SCALE jobs in parallel
+2025-09-10 13:33:55,368 - __main__ - INFO - Running parallel SCALE execution: python3 tools\scale_parallel_runner.py --directory scale_runs\production_full_core_2001_200k\inputs --workers 30 --scale-cmd D:\Scale2\SCALE-6.3.1\bin\scalerte.exe --pattern element_*.inp --verbose
+2025-09-10 13:58:45,086 - __main__ - INFO - Completed step: Running SCALE jobs in parallel (1489.7s)
+2025-09-10 13:58:45,086 - __main__ - INFO - SCALE execution completed: 243 output files generated
+2025-09-10 13:58:45,086 - __main__ - INFO - Starting step: Generating MCNP material cards
+2025-09-10 13:58:45,086 - __main__ - INFO - Running parallel MCNP card generation: python3 tools\parallel_parseOutput_processor.py --input-dir scale_runs\production_full_core_2001_200k\inputs --workers 50 --executor process --output scale_runs\production_full_core_2001_200k\mcnp_cards\mcnp_materials_all_2001.txt --summary scale_runs\production_full_core_2001_200k\mcnp_cards\processing_summary_2001.json --save-db scale_runs\production_full_core_2001_200k\mcnp_cards\materials_database_2001.db --verbose
+2025-09-10 13:59:53,285 - __main__ - INFO - Completed step: Generating MCNP material cards (68.2s)
+2025-09-10 13:59:53,285 - __main__ - INFO - MCNP card generation completed: 3 files generated
+2025-09-10 13:59:53,286 - __main__ - INFO - Starting step: Cleaning up and archiving results
+2025-09-10 13:59:53,286 - __main__ - INFO - Minimal cleanup: organizing files
+2025-09-10 13:59:53,288 - __main__ - INFO - Completed step: Cleaning up and archiving results (0.0s)
+2025-09-10 13:59:53,288 - __main__ - INFO - Cleanup completed with level: minimal
+2025-09-10 13:59:53,289 - __main__ - INFO - Workflow completed successfully in 1559.1 seconds
+2025-09-10 13:59:53,289 - __main__ - INFO - Results available in: scale_runs\production_full_core_2001_200k

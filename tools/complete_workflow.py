@@ -342,9 +342,18 @@ class CompleteWorkflow:
             # Use the most recently generated file
             generated_file = max(generated_files, key=lambda f: f.stat().st_mtime)
             
-            # Move to run directory
+            # Move to run directory with error handling
             target_file = self.run_dir / generated_file.name
-            generated_file.rename(target_file)
+            try:
+                if target_file.exists():
+                    # File already exists, use shutil.move as fallback (overwrites)
+                    shutil.move(str(generated_file), str(target_file))
+                else:
+                    generated_file.rename(target_file)
+            except OSError as e:
+                # Fallback to shutil.move for cross-device moves or permission issues
+                logger.warning(f"rename() failed, using shutil.move: {e}")
+                shutil.move(str(generated_file), str(target_file))
             
             # Update power_time path for subsequent steps
             self.power_time = target_file
@@ -540,7 +549,9 @@ class CompleteWorkflow:
                 # Only check if not using WSL
                 exe_path = scale_cmd.split()[0]
                 print(f"Checking SCALE executable: {exe_path}")
-                if not shutil.which(exe_path):
+                # Check both absolute path existence and PATH lookup
+                exe_exists = Path(exe_path).exists() or shutil.which(exe_path)
+                if not exe_exists:
                     logger.error(f"SCALE executable not found: {exe_path}\nCheck your --scale-cmd argument and ensure the path is correct and the file is executable.")
                     step.fail(f"SCALE executable not found: {exe_path}")
                     return False
@@ -864,9 +875,30 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
     
     # Validate arguments
-    if not args.power_time and not Path(args.burnup_db).exists():
-        logger.error("Either --power-time must be provided or --burnup-db must exist for ORIGEN generation")
+
+    # Check flux_json file exists (required for SCALE input generation)
+    if not Path(args.flux_json).exists():
+        logger.error(f"Flux JSON file not found: {args.flux_json}")
         sys.exit(1)
+
+    # Validate ORIGEN generation requirements
+    if args.skip_origen_generation:
+        # If skipping ORIGEN generation, power-time file MUST be provided and exist
+        if not args.power_time:
+            logger.error("--power-time must be provided when using --skip-origen-generation")
+            sys.exit(1)
+        if not Path(args.power_time).exists():
+            logger.error(f"Power-time file not found: {args.power_time}")
+            sys.exit(1)
+    else:
+        # If not skipping ORIGEN generation, either power-time must be provided OR burnup-db must exist
+        if not args.power_time and not Path(args.burnup_db).exists():
+            logger.error("Either --power-time must be provided or --burnup-db must exist for ORIGEN generation")
+            sys.exit(1)
+        # If power-time is provided, validate it exists
+        if args.power_time and not Path(args.power_time).exists():
+            logger.error(f"Power-time file not found: {args.power_time}")
+            sys.exit(1)
     
     try:
         # Create workflow instance

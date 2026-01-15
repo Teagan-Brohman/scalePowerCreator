@@ -18,7 +18,15 @@ from collections import defaultdict
 import threading
 
 # Import our custom modules
-from scale_msg_parser import ScaleMsgParser
+try:
+    from scale_msg_parser import ScaleMsgParser
+except ImportError:
+    # Try importing from tools directory when running from different location
+    from pathlib import Path as _Path
+    tools_dir = _Path(__file__).parent
+    if str(tools_dir) not in sys.path:
+        sys.path.insert(0, str(tools_dir))
+    from scale_msg_parser import ScaleMsgParser
 
 class ScaleJobMonitor:
     """Monitor SCALE jobs in a directory and display status"""
@@ -167,11 +175,12 @@ class ScaleJobMonitor:
         if completed_runtimes:
             stats['avg_runtime'] = sum(completed_runtimes) / len(completed_runtimes)
             
-            # Estimate remaining time
-            if running_jobs > 0 and stats['not_started'] > 0:
+            # Estimate remaining time when there are any incomplete jobs
+            if running_jobs > 0 or stats['not_started'] > 0:
                 estimated_per_job = stats['avg_runtime']
-                remaining_jobs = stats['not_started'] + running_jobs
-                stats['estimated_remaining'] = estimated_per_job * remaining_jobs
+                # For running jobs, assume 50% complete on average to avoid double-counting
+                remaining_work = stats['not_started'] + (running_jobs * 0.5)
+                stats['estimated_remaining'] = estimated_per_job * remaining_work
         
         return stats
         

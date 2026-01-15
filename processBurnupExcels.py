@@ -93,7 +93,11 @@ class BurnupProcessor:
             'startup_count': ['startup_count', 'Start-up count']
         }
         
+        # Critical columns that should generate warnings if unmapped
+        critical_columns = {'Date', 'Power (kw)', 'Total Energy\n(average)', 'Power\nDuration', 'Delta Time\n(minutes)'}
+
         # Map each standard column
+        unmapped_critical = []
         for std_col, possible_names in column_mapping.items():
             mapped = False
             for possible_name in possible_names:
@@ -101,9 +105,15 @@ class BurnupProcessor:
                     normalized_df[std_col] = df[possible_name]
                     mapped = True
                     break
-            
+
             if not mapped:
                 normalized_df[std_col] = None
+                if std_col in critical_columns:
+                    unmapped_critical.append(std_col)
+
+        # Warn about unmapped critical columns
+        if unmapped_critical:
+            print(f"    ⚠ WARNING: Critical columns not found in {sheet_name}: {unmapped_critical}")
         
         # Validate unmapped columns - warn about columns in the Excel that weren't mapped
         mapped_original_cols = set()
@@ -440,7 +450,7 @@ class BurnupProcessor:
                                 time_part = f"{hours:02d}:{minutes:02d}:00"
                             else:
                                 time_part = "00:00:00"
-                        except:
+                        except (ValueError, TypeError):
                             time_part = "00:00:00"
                 else:
                     time_part = "00:00:00"
@@ -565,6 +575,9 @@ class BurnupProcessor:
                         
                         -- Normal calculation for positive Power Duration
                         -- Total duration = Delta Time (ramp-up) + Power Duration (time at power)
+                        -- Note: 5.0 minute default is the assumed reactor startup/ramp-up time
+                        -- when Delta Time is NULL or zero. This is physically reasonable for
+                        -- typical reactor operations where startup takes ~5 minutes.
                         WHEN `Power\nDuration` IS NOT NULL
                              AND `Total Energy\n(average)` IS NOT NULL
                              AND CAST(`Power\nDuration` AS REAL) > 0
@@ -593,6 +606,9 @@ class BurnupProcessor:
                         
                         -- Normal calculation for positive Power Duration
                         -- Total duration = Delta Time (ramp-up) + Power Duration (time at power)
+                        -- Note: 5.0 minute default is the assumed reactor startup/ramp-up time
+                        -- when Delta Time is NULL or zero. This is physically reasonable for
+                        -- typical reactor operations where startup takes ~5 minutes.
                         WHEN `Power\nDuration` IS NOT NULL
                              AND `Total Energy\n(exponential)` IS NOT NULL
                              AND CAST(`Power\nDuration` AS REAL) > 0

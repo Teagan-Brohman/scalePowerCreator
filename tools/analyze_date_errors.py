@@ -95,7 +95,19 @@ Time] IS NOT NULL
         problematic_sheets = []
         for sheet in df2['sheet_name'].unique():
             sheet_data = df2[df2['sheet_name'] == sheet]
-            expected_years = [sheet[:4], sheet[5:9]]  # Extract years from sheet name
+            # Try to extract years from sheet name (expected format: YYYY-YYYY)
+            try:
+                year1 = sheet[:4]
+                year2 = sheet[5:9] if len(sheet) >= 9 else None
+                # Validate they look like years
+                if year1.isdigit() and len(year1) == 4:
+                    expected_years = [year1]
+                    if year2 and year2.isdigit() and len(year2) == 4:
+                        expected_years.append(year2)
+                else:
+                    expected_years = []  # Can't determine expected years from sheet name
+            except:
+                expected_years = []
             actual_years = sheet_data['year_in_data'].tolist()
             
             # Check if actual years match expected

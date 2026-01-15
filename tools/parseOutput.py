@@ -1,13 +1,4 @@
 #!/usr/bin/env python3
-"""
-Optimized ORIGEN Parser using pandas with minimal DataFrame approach
-
-This script uses pandas efficiently by:
-1. Only creating DataFrames for the columns we actually need
-2. Pre-filtering data before DataFrame creation
-3. Using explicit data types to avoid inference overhead
-4. Processing sections separately and combining results
-"""
 
 import re
 import pandas as pd

@@ -18,7 +18,15 @@ from datetime import datetime
 import threading
 
 # Import our custom msg parser
-from scale_msg_parser import ScaleMsgParser
+try:
+    from scale_msg_parser import ScaleMsgParser
+except ImportError:
+    # Try importing from tools directory when running from different location
+    from pathlib import Path as _Path
+    tools_dir = _Path(__file__).parent
+    if str(tools_dir) not in sys.path:
+        sys.path.insert(0, str(tools_dir))
+    from scale_msg_parser import ScaleMsgParser
 
 logger = logging.getLogger(__name__)
 

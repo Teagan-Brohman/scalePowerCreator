@@ -346,16 +346,17 @@ class ParallelParseOutputProcessor:
             return
         
         # Create database using parseOutput's method
+        # Use the first successful job's file path for parser initialization
         first_job = successful_jobs[0]
-        dummy_parser = OptimizedORIGENParser("dummy", self.endf8_json_path)
-        dummy_parser.create_materials_database(db_path)
+        parser = OptimizedORIGENParser(str(first_job.element_file), self.endf8_json_path)
+        parser.create_materials_database(db_path)
         
         # Prepare materials data for database
         materials_data = {}
         for job in successful_jobs:
             materials_data[job.element_name] = job.material_info
         
-        dummy_parser.save_materials_to_database(db_path, cycle_number, materials_data)
+        parser.save_materials_to_database(db_path, cycle_number, materials_data)
         logger.info(f"Materials saved to database: {db_path}")
     
     def save_summary_json(self, output_file: Path):

@@ -9,6 +9,7 @@
 /.vscode/*
 /workflow_production_full_core.log.*
 origen_cards_*
-
+/AGENTS.md
+/CODE_REVIEW_ISSUES.md
 
 
