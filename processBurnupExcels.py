@@ -72,7 +72,7 @@ class BurnupProcessor:
         # Map data columns with flexible matching for both file formats
         column_mapping = {
             'Date': ['Date'],
-            'Checkout\nStart': ['Checkout\nStart', 'Checkout Start', 'Start'],
+            'Checkout\nStart': ['Checkout\nStart', 'Checkout Start', 'Start', 'Rods@6"', "Rods@6'"],
             'Purpose': ['Purpose'],
             'Power (kw)': ['Power (kw)', 'Power(kw)', 'Power', 'Pwr', 'power (kW)'],
             'Time @': ['Time @', 'At'],
@@ -564,12 +564,13 @@ class BurnupProcessor:
                             CAST(`Delta Time\n(minutes)` AS REAL), 6)
                         
                         -- Normal calculation for positive Power Duration
-                        WHEN `Power\nDuration` IS NOT NULL 
+                        -- Total duration = Delta Time (ramp-up) + Power Duration (time at power)
+                        WHEN `Power\nDuration` IS NOT NULL
                              AND `Total Energy\n(average)` IS NOT NULL
                              AND CAST(`Power\nDuration` AS REAL) > 0
                         THEN ROUND(
-                            CAST(`Total Energy\n(average)` AS REAL) / 
-                            (COALESCE(NULLIF(CAST(`Delta Time\n(minutes)` AS REAL), 0), 5.0) * 
+                            CAST(`Total Energy\n(average)` AS REAL) /
+                            (COALESCE(NULLIF(CAST(`Delta Time\n(minutes)` AS REAL), 0), 5.0) +
                              CAST(`Power\nDuration` AS REAL)), 6)
                         
                         ELSE NULL
@@ -591,12 +592,13 @@ class BurnupProcessor:
                             CAST(`Delta Time\n(minutes)` AS REAL), 6)
                         
                         -- Normal calculation for positive Power Duration
-                        WHEN `Power\nDuration` IS NOT NULL 
+                        -- Total duration = Delta Time (ramp-up) + Power Duration (time at power)
+                        WHEN `Power\nDuration` IS NOT NULL
                              AND `Total Energy\n(exponential)` IS NOT NULL
                              AND CAST(`Power\nDuration` AS REAL) > 0
                         THEN ROUND(
-                            CAST(`Total Energy\n(exponential)` AS REAL) / 
-                            (COALESCE(NULLIF(CAST(`Delta Time\n(minutes)` AS REAL), 0), 5.0) * 
+                            CAST(`Total Energy\n(exponential)` AS REAL) /
+                            (COALESCE(NULLIF(CAST(`Delta Time\n(minutes)` AS REAL), 0), 5.0) +
                              CAST(`Power\nDuration` AS REAL)), 6)
                         
                         ELSE NULL

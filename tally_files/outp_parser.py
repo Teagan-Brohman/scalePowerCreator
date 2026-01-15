@@ -43,6 +43,9 @@ def parse_tallies(filepath: str) -> list:
                     tally = line
                     while True:
                         newline = f.readline()
+                        if not newline:  # EOF reached
+                            tallies.append(tally)
+                            break
                         tally += newline
                         if "fom = (histories/minute)" in newline:
                             tallies.append(tally)
@@ -82,6 +85,7 @@ def make_friendly_tally(tally: str) -> tuple:
     lines = tally.split('\n')
     split_lines = [line.split() for line in lines]
     data_lines = []
+    tally_name = "Unknown Tally"  # Default value if no "+" line found
     for split_line in split_lines:
         try:
             first_item = split_line[0]

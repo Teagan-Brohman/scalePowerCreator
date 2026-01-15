@@ -86,17 +86,17 @@ class ScaleResultsCollector:
     
     def extract_assembly_name(self, filename: str) -> str:
         """Extract assembly name from output filename"""
-        # Convert "assembly_Assembly_MTR-F-001.out" back to "Assembly MTR-F-001"
+        # Convert "assembly_Assembly__MTR-F-001.out" back to "Assembly MTR-F-001"
         match = re.match(r'assembly_(.+)\.out', filename)
         if match:
             safe_name = match.group(1)
-            # Convert safe filename back to original name
-            return safe_name.replace('_', ' ').replace('-', '/')
+            # Convert safe filename back to original name (decode in correct order)
+            return safe_name.replace('_SLASH_', '/').replace('__', ' ')
         return filename
         
     def extract_element_info(self, filename: str) -> Dict:
         """Extract element information from element output filename"""
-        # Extract info from "element_Assembly_MTR-F-001_E001.out" or similar
+        # Extract info from "element_Assembly__MTR-F-001_G001.out" or similar
         if self.element_mapping and filename in self.element_mapping:
             mapping = self.element_mapping[filename]
             return {
@@ -106,13 +106,13 @@ class ScaleResultsCollector:
                 'safe_assembly': mapping['safe_assembly']
             }
         else:
-            # Fallback parsing from filename
-            match = re.match(r'element_(.+)_E(\d+)\.out', filename)
+            # Fallback parsing from filename (G = global element number)
+            match = re.match(r'element_(.+)_G(\d+)\.out', filename)
             if match:
                 safe_assembly = match.group(1)
                 element_number = int(match.group(2))
                 return {
-                    'assembly': safe_assembly.replace('_', ' ').replace('-', '/'),
+                    'assembly': safe_assembly.replace('_SLASH_', '/').replace('__', ' '),
                     'element_key': f'Element #{element_number}',
                     'element_number': element_number,
                     'safe_assembly': safe_assembly

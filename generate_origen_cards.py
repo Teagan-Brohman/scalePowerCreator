@@ -186,7 +186,9 @@ Duration",
             return
         
         try:
-            power_mw = self.safe_float(power_per_min) / 1000  # Convert kW to MW
+            # power_per_min is in kW (from Total Energy [kWh] / Total Duration [min])
+            # Convert kW to MW for ORIGEN input
+            power_mw = self.safe_float(power_per_min) / 1000
             
             # Calculate total duration (Delta Time + Power Duration)
             delta_min = self.safe_float(delta_time, 0.0)

@@ -1072,11 +1072,11 @@ def generate_helper_scripts(output_dir: Path, assemblies: Dict[str, List[str]], 
                     # Create a temporary ScaleInputGenerator instance to use the extract_element_number method
                     temp_generator = ScaleInputGenerator()
                     element_number = temp_generator.extract_element_number(element_key)
-                    safe_assembly = assembly_name.replace(' ', '_').replace('/', '-')
+                    safe_assembly = assembly_name.replace(' ', '__').replace('/', '_SLASH_')
                     f.write(f"element_{element_number:03d}\t{assembly_name}\t{element_key}\n")
         else:
             for assembly_name, elements in assemblies.items():
-                safe_name = assembly_name.replace(' ', '_').replace('/', '-')
+                safe_name = assembly_name.replace(' ', '__').replace('/', '_SLASH_')
                 f.write(f"{safe_name}\t{len(elements)} elements\t{assembly_name}\n")
     
     # Generate Python parallel execution script
@@ -1335,17 +1335,13 @@ Examples:
                 processed_elements = 0  # Total elements attempted
                 
                 for assembly_name, elements in assemblies.items():
-                    safe_assembly = assembly_name.replace(' ', '_').replace('/', '-')
+                    safe_assembly = assembly_name.replace(' ', '__').replace('/', '_SLASH_')
                     
                     for element_key in elements:
-                        local_element_number = generator.extract_element_number(element_key)  # For filename only
+                        local_element_number = generator.extract_element_number(element_key)  # For reference only
                         processed_elements += 1
-                        
-                        # Create filename: element_Assembly_MTR-F-001_E001.inp (using local element number)
-                        output_file = output_dir / f"element_{safe_assembly}_E{local_element_number:03d}.inp"
-                        
-                        # First check if element is valid before incrementing counter
-                        # Pre-validate the element
+
+                        # Pre-validate the element before creating filename
                         if element_key not in generator.flux_data:
                             skipped_elements.append({
                                 'element_key': element_key,
@@ -1366,9 +1362,12 @@ Examples:
                         
                         # Only increment counter for valid elements that will be generated
                         global_element_counter += 1
-                        
-                        # Use global counter for flux file reference
-                        success, skip_reason = generator.generate_element_input(assembly_name, element_key, 
+
+                        # Create filename using global counter to match internal flux file reference
+                        output_file = output_dir / f"element_{safe_assembly}_G{global_element_counter:03d}.inp"
+
+                        # Use global counter for flux file reference (matches filename)
+                        success, skip_reason = generator.generate_element_input(assembly_name, element_key,
                                                                               global_element_counter, str(output_file))
                         
                         if success:
@@ -1435,7 +1434,7 @@ Examples:
                 assembly_files = []
                 for assembly_name, elements in assemblies.items():
                     # Convert assembly name to filename-safe format
-                    safe_name = assembly_name.replace(' ', '_').replace('/', '-')
+                    safe_name = assembly_name.replace(' ', '__').replace('/', '_SLASH_')
                     output_file = output_dir / f"assembly_{safe_name}.inp"
                     
                     if generator.generate_assembly_input(assembly_name, elements, str(output_file)):
