@@ -61,6 +61,7 @@ LIBRARY_DESCRIPTIONS = {
 }
 MAX_ATOMIC_NUMBER = 118
 ZAID_MULTIPLIER = 1000  # For converting Z to elemental ZAID (Z000)
+MCNP_CONTINUATION_INDENT = "     "  # 5 spaces for MCNP continuation lines
 
 
 @dataclass
@@ -130,14 +131,15 @@ class MCNPMaterialConverter:
         LibraryDataError: When nuclear data library files cannot be loaded
     """
     
-    def __init__(self, library_suffix: str = DEFAULT_LIBRARY_SUFFIX, use_nlib: bool = False):
+    def __init__(self, library_suffix: str = DEFAULT_LIBRARY_SUFFIX, use_nlib: bool = False, verbose: bool = True):
         """
         Initialize the converter with a specific library suffix.
-        
+
         Args:
             library_suffix: The library suffix (e.g., ".00c", ".70c", ".31c")
             use_nlib: If True, output 'nlib=XXc' instead of adding suffix to each isotope
-            
+            verbose: If True, print informational messages (default True for CLI compatibility)
+
         Raises:
             LibraryDataError: If library suffix is not supported
         """
@@ -146,9 +148,10 @@ class MCNPMaterialConverter:
                 f"Unsupported library suffix '{library_suffix}'. "
                 f"Supported libraries: {', '.join(SUPPORTED_LIBRARIES)}"
             )
-            
+
         self.library_suffix = library_suffix
         self.use_nlib = use_nlib
+        self.verbose = verbose
         self.elements_db = {}  # Load elements on demand
         self.available_isotopes = self._initialize_available_isotopes()
         
@@ -191,29 +194,22 @@ class MCNPMaterialConverter:
             # Only add element if it has natural isotopes
             if isotopes:
                 self.elements_db[z_number] = Element(
-                    elem.symbol, 
-                    z_number, 
-                    elem.name, 
+                    elem.symbol,
+                    z_number,
+                    elem.name,
                     isotopes
                 )
                 return self.elements_db[z_number]
-            # Special cases for elements without natural isotopes but common in MCNP
-            elif z_number == 94:  # Plutonium
-                self.elements_db[94] = Element("Pu", 94, "Plutonium", [
-                    Isotope(94238, 0.0),
-                    Isotope(94239, 0.0),  # User must specify enrichment
-                    Isotope(94240, 0.0),
-                    Isotope(94241, 0.0),
-                    Isotope(94242, 0.0)
-                ])
-                return self.elements_db[94]
             else:
-                # Element exists but has no natural isotopes (e.g., Tc, Pm)
+                # Element exists but has no natural isotopes (e.g., Tc, Pm, Pu, Am, Cm)
+                # Users must specify these in isotopic form directly
                 return None
-                
-        except Exception as e:
+
+        except (AttributeError, ValueError, KeyError, TypeError) as e:
+            # Capture element symbol if we got that far
+            elem_symbol = elem.symbol if 'elem' in dir() and hasattr(elem, 'symbol') else 'unknown'
             raise ElementNotFoundError(
-                f"Could not load element data for Z={z_number} ({elem.symbol if 'elem' in locals() else 'unknown'}): {e}"
+                f"Could not load element data for Z={z_number} ({elem_symbol}): {e}"
             )
     
     def _initialize_available_isotopes(self) -> Dict[str, List[int]]:
@@ -241,23 +237,24 @@ class MCNPMaterialConverter:
                 
                 if os.path.exists(isotope_file):
                     try:
-                        with open(isotope_file, 'r') as f:
+                        with open(isotope_file, 'r', encoding='utf-8') as f:
                             data = json.load(f)
                             available[lib_suffix] = data.get("isotopes", [])
-                            lib_name = LIBRARY_DESCRIPTIONS.get(lib_suffix, lib_suffix)
-                            print(f"Loaded {len(available[lib_suffix])} isotopes for {lib_name}")
+                            if self.verbose:
+                                lib_name = LIBRARY_DESCRIPTIONS.get(lib_suffix, lib_suffix)
+                                print(f"Loaded {len(available[lib_suffix])} isotopes for {lib_name}")
                     except (json.JSONDecodeError, IOError) as e:
                         # For current library, this is critical; for others, just warn
                         if lib_suffix == self.library_suffix:
                             raise LibraryDataError(
                                 f"Could not load critical isotope data for {lib_suffix}: {e}"
                             )
-                        else:
+                        elif self.verbose:
                             print(f"Warning: Could not load isotope data for {lib_suffix}: {e}")
                 else:
                     # Missing file for current library is just a warning (will use all isotopes)
-                    lib_name = LIBRARY_DESCRIPTIONS.get(lib_suffix, lib_suffix)
-                    if lib_suffix == self.library_suffix:
+                    if lib_suffix == self.library_suffix and self.verbose:
+                        lib_name = LIBRARY_DESCRIPTIONS.get(lib_suffix, lib_suffix)
                         print(f"Warning: Isotope file not found for {lib_name}. Will assume all isotopes are available.")
         
         return available
@@ -311,12 +308,17 @@ class MCNPMaterialConverter:
                     i += 1
                     continue
                 
-                # Skip non-numeric tokens (like 'nlib=00c')
-                if not tokens[i].replace('.', '').replace('-', '').replace('+', '').replace('e', '').replace('E', '').isdigit():
+                # Skip non-ZAID tokens (like 'nlib=00c' or other keywords)
+                token = tokens[i]
+                if '=' in token or token.isalpha():
                     i += 1
                     continue
-                    
+
                 try:
+                    # Try to parse as ZAID - must start with digits
+                    if not token[0].isdigit():
+                        i += 1
+                        continue
                     # Parse ZAID (might have library suffix)
                     zaid_str = tokens[i]
                     if '.' in zaid_str:
@@ -371,35 +373,44 @@ class MCNPMaterialConverter:
     def convert_element_to_isotopes(self, z_number: int, fraction: float) -> List[Tuple[int, float]]:
         """
         Convert an elemental ZAID to its isotopic components.
-        
+
         Args:
             z_number: Atomic number (Z)
             fraction: Material fraction for this element
-            
+
         Returns:
             List of (isotope_ZAID, adjusted_fraction) tuples
         """
         # Load element data on demand
-        element = self._load_element(z_number)
-        if not element:
-            raise ValueError(f"Element with Z={z_number} not found or has no natural isotopes")
+        elem_data = self._load_element(z_number)
+        if not elem_data:
+            # Get element symbol for better error message
+            try:
+                elem_info = element(z_number)
+                symbol = elem_info.symbol
+            except Exception:
+                symbol = f"Z={z_number}"
+            raise ValueError(
+                f"Element {symbol} (Z={z_number}) has no natural isotopes. "
+                f"Synthetic elements must be specified in isotopic form (e.g., {z_number}239 not {z_number}000)."
+            )
         isotopes = []
         unavailable = []
-        
+
         # Check which isotopes are available in the library
         available_in_lib = self.available_isotopes.get(self.library_suffix, [])
-        
+
         total_available_abundance = 0.0
-        for isotope in element.isotopes:
+        for isotope in elem_data.isotopes:
             # If no library data loaded (empty list), include all isotopes
             # Otherwise, only include isotopes that are in the library
             if len(available_in_lib) == 0 or isotope.zaid in available_in_lib:
                 total_available_abundance += isotope.abundance
             else:
                 unavailable.append(isotope.zaid)
-        
+
         # Renormalize abundances if some isotopes are unavailable
-        for isotope in element.isotopes:
+        for isotope in elem_data.isotopes:
             if len(available_in_lib) == 0 or isotope.zaid in available_in_lib:
                 # Calculate the fraction for this isotope
                 if total_available_abundance > 0:
@@ -408,14 +419,14 @@ class MCNPMaterialConverter:
                     isotope_fraction = fraction * renormalized_abundance
                 else:
                     isotope_fraction = fraction * isotope.abundance
-                    
+
                 if isotope_fraction != 0:  # Include all isotopes except exactly zero
                     isotopes.append((isotope.zaid, isotope_fraction))
-        
-        if unavailable:
-            print(f"Warning: Isotopes {unavailable} for element {element.symbol} not available in {self.library_suffix}")
+
+        if unavailable and self.verbose:
+            print(f"Warning: Isotopes {unavailable} for element {elem_data.symbol} not available in {self.library_suffix}")
             print(f"         Abundances renormalized over available isotopes")
-        
+
         if not isotopes:
             raise ValueError(f"No isotopes available for element Z={z_number} in library {self.library_suffix}")
         
@@ -483,23 +494,23 @@ class MCNPMaterialConverter:
         output_lines = [mat_num]
         for i, (zaid, fraction) in enumerate(converted):
             if i > 0:
-                output_lines.append("\n     ")
-            
+                output_lines.append(f"\n{MCNP_CONTINUATION_INDENT}")
+
             # Add comment if available
             comment_str = ""
             if zaid in converted_comments:
                 comment_str = f" $ {converted_comments[zaid]}"
-            
+
             # Format ZAID with or without suffix
             if self.use_nlib:
                 output_lines.append(f"{zaid} {fraction:.6e}{comment_str}")
             else:
                 output_lines.append(f"{zaid}{self.library_suffix} {fraction:.6e}{comment_str}")
-        
+
         # Add nlib directive if using nlib format
         if self.use_nlib:
             nlib_suffix = self.library_suffix[1:]  # Remove the dot
-            result = "".join(output_lines) + f"\n     nlib={nlib_suffix}"
+            result = "".join(output_lines) + f"\n{MCNP_CONTINUATION_INDENT}nlib={nlib_suffix}"
         else:
             result = "".join(output_lines)
         
@@ -543,18 +554,13 @@ Examples:
   
   # Use nlib format instead of suffixes on each isotope
   python %(prog)s --use-nlib -i material.txt
-  
-  # Specify library isotope file
-  python %(prog)s --library-file endf7_isotopes.json -i material.txt
         """
     )
-    
+
     parser.add_argument('-i', '--input', help='Input file (default: stdin)')
     parser.add_argument('-o', '--output', help='Output file (default: stdout)')
     parser.add_argument('-l', '--library', default='.00c',
                        help='Library suffix (default: .00c)')
-    parser.add_argument('--library-file', 
-                       help='JSON file with available isotopes for library')
     parser.add_argument('--handle-missing', choices=['warn', 'skip', 'error'],
                        default='warn',
                        help='How to handle missing isotopes (default: warn)')
@@ -577,22 +583,22 @@ Examples:
     
     # Read input
     if args.input:
-        with open(args.input, 'r') as f:
+        with open(args.input, 'r', encoding='utf-8') as f:
             material_card = f.read()
     else:
         print("Enter material card (Ctrl+D when done):", file=sys.stderr)
         material_card = sys.stdin.read()
-    
+
     # Convert
     try:
         converted = converter.convert_material(
-            material_card, 
+            material_card,
             handle_missing=args.handle_missing
         )
-        
+
         # Write output
         if args.output:
-            with open(args.output, 'w') as f:
+            with open(args.output, 'w', encoding='utf-8') as f:
                 f.write(converted)
             print(f"Converted material written to {args.output}", file=sys.stderr)
         else:
